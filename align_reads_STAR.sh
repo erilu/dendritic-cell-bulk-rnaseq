@@ -68,7 +68,7 @@ end1=`ls ${prefix}_*_R1_*.fastq.gz | perl -e '@a=<>;chomp @a; print join q[,],@a
 end2=`ls ${prefix}_*_R2_*.fastq.gz | perl -e '@a=<>;chomp @a; print join q[,],@a'`
 echo ${prefix}
 echo $end1
-#STAR --runThreadN 8 --genomeDir $genome_dir/ --genomeLoad LoadAndKeep --readFilesIn $end1 $end2 --readFilesCommand zcat --outFileNamePrefix $prefix --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
+STAR --runThreadN 8 --genomeDir $genome_dir/ --genomeLoad LoadAndKeep --readFilesIn $end1 $end2 --readFilesCommand zcat --outFileNamePrefix $prefix --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
 echo 'aligned'
 done
 
@@ -118,7 +118,7 @@ find . -name '*_byName.bam' | parallel 'samtools view -h {} | htseq-count --stra
 
 # the resulting output files (*_htseq.out) are your raw sequence counts! You can now feed this file into R to
 # perform differential gene expression analysis.
-# for the code used to analyze these count files, refer to "DC_DESeq_diff_expression_analysis.R"
+# for the code used to analyze these count files, refer to "DC_diff_expression_analysis.R"
 
 
 
