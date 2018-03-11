@@ -1,7 +1,7 @@
 # align_reads_STAR.sh
-# This code reads in the raw RNA-seq .fastq files, aligns them to a reference genome, and counts reads per gene using HTSeq.
-# Previously, each fastq file is first checked using FastQC to determine overall quality of the reads.
-# Raw data can be found for download at: https://www.ncbi.nlm.nih.gov/sra?term=SRP061381
+# This code reads in raw RNA-seq .fastq files, aligns them to a reference genome, and counts reads per gene using HTSeq.
+# Raw data is publicly available for download at: https://www.ncbi.nlm.nih.gov/sra?term=SRP061381
+# The GEO entry can be found at: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM1828772
 # This data was previously analyzed using TopHat. We will re-analyze it here using STAR
 
 ###########################################################################################
@@ -31,7 +31,7 @@ seqdir=/bigdata/seq/RnaSeq/
 analysisdir=/bigdata/analysis/
 
 # Third, define the directory that contains our reference genome (mm10).
-genome_dir=/bigdata/genomes/mm10/STAR
+genomedir=/bigdata/genomes/mm10/STAR
 
 # Next, create soft-links to the raw data so that we can call the files in the analysis folder without typing out the whole directory each time.
 # I like to separate the raw data from the analysis files so that the raw data is easier to locate in the future.
@@ -68,7 +68,7 @@ end1=`ls ${prefix}_*_R1_*.fastq.gz | perl -e '@a=<>;chomp @a; print join q[,],@a
 end2=`ls ${prefix}_*_R2_*.fastq.gz | perl -e '@a=<>;chomp @a; print join q[,],@a'`
 echo ${prefix}
 echo $end1
-STAR --runThreadN 8 --genomeDir $genome_dir/ --genomeLoad LoadAndKeep --readFilesIn $end1 $end2 --readFilesCommand zcat --outFileNamePrefix $prefix --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
+STAR --runThreadN 8 --genomeDir $genomedir/ --genomeLoad LoadAndKeep --readFilesIn $end1 $end2 --readFilesCommand zcat --outFileNamePrefix $prefix --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
 echo 'aligned'
 done
 
@@ -90,7 +90,7 @@ done
 # for prefix in $mylist; do
 # end1=`ls ${prefix}_*_R1_*.fastq.gz | perl -e '@a=<>;chomp @a; print join q[,],@a'`
 # echo $end1
-# STAR --runThreadN 8 --genomeDir $genome_dir/ --genomeLoad LoadAndKeep --readFilesIn $end1 --readFilesCommand zcat --outFileNamePrefix $prefix --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
+# STAR --runThreadN 8 --genomeDir $genomedir/ --genomeLoad LoadAndKeep --readFilesIn $end1 --readFilesCommand zcat --outFileNamePrefix $prefix --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
 # done
 
 ###########################################################################################
