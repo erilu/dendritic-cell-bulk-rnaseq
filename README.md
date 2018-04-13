@@ -31,21 +31,39 @@ Once the data is properly downloaded, we can begin the RNAseq analysis.
 
 When performing research in biology, one often needs to examine changes in gene expression in order to better understand why or how certain processes occur. RNAseq is very useful for determining the differences in global gene expression between two conditions, and is therefore particularly useful as a tool for discovery.
 
-Our objective is to identify differentially expressed genes between un-activated and activated CD4+ dendritic cell populations. CD4+ dendritic cells are important for presenting antigen and activating CD4+ T cells. RNAseq can be used to identify markers and pathways that the dendritic cells might be using perform these functions.
+Our objective is to identify differentially expressed genes between un-activated and activated CD4+ dendritic cell populations. CD4+ dendritic cells are important for presenting antigen and activating CD4+ T cells. RNAseq can be used to identify markers and pathways that the dendritic cells might be using perform these functions. The results of this analysis containing a list of the top differentially expressed genes is here: [results_top2000_diff_genes_padj.csv]().
+
+These **.fastq** files were previously processed using an alternate RNAseq analysis tool called TopHat. An Excel file containing the differentially expressed genes is available as a supplementary on [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE71165). The previously processed data was used in a [research study](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4883664/) that I contributed to. The analysis that I walk through here is an updated version of the analysis used in the research paper using newer tools. Comparing the output from the two different methods, you can observe that both methods are identifying similar differentially expressed genes.
 
 ---
 # Aligning raw .fastq files to reference genome and counting reads
 
-This data was previously processed using TopHat. An Excel file containing the differentially expressed genes is available as a supplementary on [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE71165).
+We will process the data using the RNAseq alignment tool: [STAR](https://github.com/alexdobin/STAR). The code, along with an explanation of what each line does, is named [align_reads_STAR.sh](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/blob/master/align_reads_STAR.sh).
 
-We will process it using a different approach here, with the RNAseq alignment tool: [STAR](https://github.com/alexdobin/STAR). The code, along with an explanation of what each line does, is named [align_reads_STAR.sh](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/blob/master/align_reads_STAR.sh).
+The code first uses regexes to identify all the files that correspond to a particular biological replicate, then passes the files to the STAR function:
+
+```
+STAR --runThreadN 8 --genomeDir $genomedir/
+ --genomeLoad LoadAndKeep --readFilesIn $end1 $end2
+  --readFilesCommand zcat --outFileNamePrefix $prefix
+   --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
+```
+
+This spits out a **.sam** file, which is sorted and then counted using ```htseq-count```. I've included the htseq-count output files in a [folder](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/tree/master/htseq_count_files) in this repo, in case you want to skip the alignment and analyze them in R yourself.
+
 
 ---
 # Performing differential gene analysis using DESeq2 (Bioconductor)
 
-We can now read in the cleaned up data file and explore the differences in transcription between cell lines of interest. We will cluster the cell lines and pull out differentially expressed genes between subtypes of cells. To do this, we will use the [Bioconductor](https://www.bioconductor.org/help/workflows/rnaseqGene/) package [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html). This package has the capability to read in raw data files from each individual biological replicate, as well as the ability to analyze the read counts from an already compiled data file (which is what the Human Protein Atlas provides).
+Once we have the count files (\_htseq.out), we can read them in using R and perform differential gene analysis. [Bioconductor](https://www.bioconductor.org/help/workflows/rnaseqGene/) has a package called [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html) that is commonly used for this purpose. This package has the capability to read in raw data files from each individual biological replicate (the \_htseq.out files), as well as analyze the read counts from an already compiled data file (if you get data from outside labs, it might be provided in this format). The file [DC_diff_expression_analysis.R](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/blob/master/DC_diff_expression_analysis.R) contains the code used to perform the analysis.
 
-The file [cellatlas_analysis.R](https://github.com/erilu/R-Cell-Line-Transcriptome-Analysis/blob/master/cellatlas_analysis.R) will take you through how to perform the analysis (reading the data in, making a DESeq object, and annotating, exporting, and plotting the results). The exported list of differentially expressed genes between hematopoietic cells and non-hematopoietic cels is called [results_hemato_vs_non_DEGs.csv](https://github.com/erilu/R-Cell-Line-Transcriptome-Analysis/blob/master/results_hemato_vs_non_DEGs.csv). Below are some sample plots that can be used to visualize the data.
+The code will take you through the following analysis steps:
+* reading the data in
+* making a DESeq object
+* creating a results object comparing two groups
+* annotating, exporting, and plotting the results
+
+The exported list of differentially expressed genes between unactivated and activated dendritic cells is called [results_top2000_diff_genes_padj.csv](). Below are some sample plots that can be used to visualize the data.
 
 ---
 # Visualizations
@@ -53,20 +71,20 @@ The file [cellatlas_analysis.R](https://github.com/erilu/R-Cell-Line-Transcripto
 ### PCA clustering of cell lines
 ![PCA clustering of DC samples](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/blob/master/results_PCA_plot.png)
 
-Above is a principal components analysis (PCA) plot on a subset of the cell lines in the dataset. We can observe that the hematopoietic cell lines cluster away from the non-hematopoietic cell lines in the PCA plot. This suggests that they have different gene expression profiles. The next plot will show us some of the genes that contribute to the clustering we see here.
+Above is a principal components analysis (PCA) plot of the 4 biological samples. As expected, we can observe that the activated dendritic cell samples cluster away from the unactivated cell lines in the PCA plot. This suggests that the groups have different gene expression profiles. The next plot will show us some of the genes that contribute to the clustering we see here.
 
 ### Volcano plot to visualize differentially expressed genes with p-value cutoff
 
-![Volcano plot cell line DEGs](https://github.com/erilu/R-Cell-Line-Transcriptome-Analysis/blob/master/results_volcano_plot_DEGs.png)
+![Volcano plot of upregulated DEGs](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/blob/master/results_volcano_plot_DEGs.png)
 
-In accord with the clustering analysis, there are a lot of genes that are differentially expressed in hematopoietic vs non-hematopoietic cells.
+We can see that the majority of differentially expressed genes are upregulated in activated dendritic cells. This makes sense biologically, since a dendritic cell would want to rapidly begin expressing markers that help activate T cells (co-stimulatory molecules), such as CD86. CD86 is a well described marker that is upregulated by dendritic cells after activation. We can see that CD86 shows up in our analysis, which gives us more confidence that the experiment and data analysis was performed correctly.
 
 ### Heatmap to display top differentially expressed genes
 
-![Heatmap of top DEGs](https://github.com/erilu/R-Cell-Line-Transcriptome-Analysis/blob/master/results_heatmap_top50_DEGs_ggplot2.png)
+![Heatmap of top DEGs](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/blob/master/results_heatmap_DEGs.png)
 
-The differentially expressed genes can also be visualized using a heatmap.
+The differentially expressed genes can also be visualized using a heatmap. I made an different version of this heatmap using the gene list from the previous analysis in [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE71165), which was published in a [scientific research paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4883664/) in the journal _Nature_ (Extended Figure 5, panel A).
 
 ---
 
-If you are interested in learning how to perform a full RNA-seq pipeline analysis, you can look at my other [repo](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis) where I align raw .fastq sequencing files to a mouse reference genome, then use Bioconductor to find differentially expressed genes in activated vs. un-activated dendritic cells.
+Thanks for reading! If you are interested in looking at another RNAseq analysis (using cell line RNAseq data obtained from the Human Protein Atlas), you can check out my other  [repo](https://github.com/erilu/R-Cell-Line-Transcriptome-Analysis). I clean and organize read count files, then use Bioconductor to find differentially expressed genes in subsets of cell lines. I also pull out all annotated enzymes and repeat the analysis to find differentially expressed enzymes.
