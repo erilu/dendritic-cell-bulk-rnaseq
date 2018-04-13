@@ -83,8 +83,8 @@ We can see that the majority of differentially expressed genes are upregulated i
 
 ![Heatmap of top DEGs](https://github.com/erilu/Complete-RNA-seq-Pipeline-Transcriptome-Analysis/blob/master/results_heatmap_DEGs.png)
 
-The differentially expressed genes can also be visualized using a heatmap. I made an different version of this heatmap using the gene list from the previous analysis in [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE71165), which was published in a [scientific research paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4883664/) in the journal _Nature_ (Extended Figure 5, panel A).
+The differentially expressed genes can also be visualized using a heatmap. I made a different version of this heatmap using the gene list from the previous analysis in [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE71165), which was published in a [scientific research paper](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4883664/) in the journal _Nature_ (Extended Figure 5, panel A).
 
 ---
 
-Thanks for reading! If you are interested in looking at another RNAseq analysis (using cell line RNAseq data obtained from the Human Protein Atlas), you can check out my other  [repo](https://github.com/erilu/R-Cell-Line-Transcriptome-Analysis). I clean and organize read count files, then use Bioconductor to find differentially expressed genes in subsets of cell lines. I also pull out all annotated enzymes and repeat the analysis to find differentially expressed enzymes.
+Thanks for reading! If you are interested in looking at another RNAseq analysis (using cell line RNAseq data obtained from the Human Protein Atlas), you can check out my other  [repo](https://github.com/erilu/R-Cell-Line-Transcriptome-Analysis). I clean and organize read count files, then use Bioconductor to find differentially expressed genes in subsets of cell lines. I also use Bioconductor to identify all annotated enzymes and repeat the analysis to find differences in enzyme expression.
