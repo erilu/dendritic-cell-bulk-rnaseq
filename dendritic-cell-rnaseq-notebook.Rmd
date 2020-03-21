@@ -1,0 +1,259 @@
+---
+title: "RNA-seq analysis of activated dendritic cells"
+author: Erick Lu
+date: "March 21, 2020 \n\n[GitHub Repo](https://github.com/erilu/dendritic-cell-bulk-rnaseq)"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+---
+
+## The objective
+
+When performing research in biology, examining changes in gene expression helps one understand why or how certain processes occur. RNAseq is often used to determine differences in global gene expression between two conditions.
+
+In this project, our objective is to use RNA-seq to identify differentially expressed genes between activated and un-activated CD4+ dendritic cell populations. Identifying the markers and pathways that dendritic cells upregulate after activation will improve our understanding of how these cells support T-cell differentiation.
+
+The results of this analysis were previously published in [Li et al. Nature 2016](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4883664/). Here, I will walk through an updated version of the analysis using newer tools. I will align the raw sequencing reads (FASTQ files) to a reference genome using `STAR`, count the number of reads per gene using `htseq-count`, and identify upregulated genes in activated CD4+ dendritic cells using the `DESeq2` package in R.
+
+For a more in-depth guide about how to perform bulk RNA-seq analysis, you can check out my bulk RNA-seq [guide](https://github.com/erilu/bulk-rnaseq-analysis).
+
+## The data
+
+RNA-seq was performed on purified populations of CD4+ dendritic cells from mice treated with either an immune stimulus (SRBCs) or vehicle control (PBS). The raw sequencing data and experimental details are publicly available in the Gene Expression Omnibus (GEO) under accession [GSE71165](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE71165), and can be downloaded using the NCBI SRA tools. If you are interested in downloading the raw FASTQ files, you can follow the instructions in this [guide](https://erilu.github.io/python-fastq-downloader/).
+
+We will be working with four samples:
+
+* two biological replicates of a sorted population of un-activated dendritic cells, named HET_CD4_1 and HET_CD4_2.
+* two biological replicates of a sorted population of activated dendritic cells, named IMM_CD4_1 and IMM_CD4_2.
+
+For this RNAseq experiment, paired-end sequencing was performed. There should be two files associated with each sample, corresponding to each paired-end read. If you downloaded the raw files from GEO, they will be named after their SRA runs (e.g. SRR2121685 for HET_CD4_1). The files I will be working with are the original files that came from the sequencing facility, so their names will be different:
+
+```bash
+ls *.fastq.gz
+```
+```{}
+# Het_CD4_1_AAGGGA_L001_R1_001.fastq.gz  IMM_CD4_1_TTCAGC_L001_R1_001.fastq.gz
+# Het_CD4_1_AAGGGA_L001_R2_001.fastq.gz  IMM_CD4_1_TTCAGC_L001_R2_001.fastq.gz
+# Het_CD4_2_AAGACG_L002_R1_001.fastq.gz  IMM_CD4_2_TTCGCT_L002_R1_001.fastq.gz
+# Het_CD4_2_AAGACG_L002_R2_001.fastq.gz  IMM_CD4_2_TTCGCT_L002_R2_001.fastq.gz
+```
+
+## Aligning and counting reads
+
+We will process the data using the RNA-seq alignment tool [STAR](https://github.com/alexdobin/STAR). The script below will run the `STAR` command on each one of our samples, mapping both paired-end sequencing files to the mouse reference genome. It then uses `Samtools` and `htseq-count` to count how many reads were mapped to each gene in the genome.
+
+```bash
+# define the directory that contains the reference genome
+genomedir=/bigdata/genomes/mm10/STAR
+
+# get list of samples in current directory using regexes
+mylist="$(ls *.fastq.gz | perl -pe 's[^([^_]+_[^_]+\d_\d)_[ACGT]{6}_L00\d_R\d_\d\d\d.fastq.gz][$1]' | uniq )"
+
+# loop through each sample and align both paired-end reads to the reference genome
+for prefix in $mylist; do
+  pairedend1=`ls ${prefix}_*_R1_*.fastq.gz`
+  pairedend2=`ls ${prefix}_*_R2_*.fastq.gz`
+  echo ${prefix}
+  STAR --runThreadN 8 --genomeDir $genomedir/ --genomeLoad LoadAndKeep --readFilesIn $pairedend1 $pairedend2 --readFilesCommand zcat --outFileNamePrefix $prefix --outStd SAM --outFilterMultimapNmax 1 > ${prefix}.sam
+  echo 'aligned'
+done
+
+# use samtools and htseq-count to count the reads per gene for each sample, output file is htseq.out
+ls *.sam | parallel 'samtools view -bS {} | samtools sort -n -m2000000000 - {.}_byName'
+# if you have an annotation file, "genes.gtf" in the line below should point to it
+find . -name '*_byName.bam' | parallel 'samtools view -h {} | htseq-count --stranded=no - genes.gtf > {.}_htseq.out'
+```
+
+This should produce _htseq.out files, which contain the raw counts per gene. I've placed these files in this repository in the folder `htseq_count_files/`.
+
+## Differential gene expression analysis
+
+We can now read the _htseq.out files into R and perform differential gene analysis using the package [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html).
+
+I will take you through the following analysis steps:
+* reading the data in
+* making a DESeq object
+* creating a results object comparing two groups
+* annotating, exporting, and plotting the results
+
+```{r}
+library(DESeq2)
+library(tidyverse)
+```
+
+
+```{r}
+# find all the htseq files in the directory and list them, naming them by what they represent (WT or IMM)
+htseq_files = list.files(path = "htseq_count_files/", pattern = "*_htseq.out")
+names(htseq_files) = c ("Control_1", "Control_2", "Activated_1", "Activated_2")
+htseq_files
+```
+
+```{r}
+# Read in the data from the the htseq files into a table format. This is the format required for the DESeq function, countDataSet
+# If you have many different samples, gsub() can pull out hte prefix
+condition = factor(gsub("_\\d+$", "", names(htseq_files)) )
+sampleTable = data.frame(sample_name = names(htseq_files), file_name = htseq_files, condition = relevel(condition, ref = "Control"))
+sampleTable
+```
+
+```{r}
+dds <- DESeqDataSetFromHTSeqCount(sampleTable, directory = "htseq_count_files", design = ~ condition)
+dds <- DESeq(dds)
+```
+
+```{r eval=F}
+results(dds, contrast = c("condition", "Activated", "Control"))
+```
+```{}
+## log2 fold change (MLE): condition Activated vs Control 
+## Wald test p-value: condition Activated vs Control 
+## DataFrame with 23337 rows and 6 columns
+```
+```{r echo=F}
+head(as.data.frame(results(dds, contrast = c("condition", "Activated", "Control"))))
+```
+
+```{r}
+generate_DE_results <- function (dds, comparisons, padjcutoff = 0.001) {
+  # extract DESeq results between the comparisons indicated
+  res <- results(dds, contrast = c("condition", comparisons[1], comparisons[2]))[,-c(3,4)]
+  res <- rownames_to_column(as.data.frame(res), var = "Gene.name")
+  # combine normalized counts with entire DE list
+  normalized_counts <- round(counts(dds, normalized = TRUE),3)
+  combined_data <- as_tibble(cbind(res, normalized_counts))
+  combined_data <- combined_data[order(combined_data$log2FoldChange, decreasing = T),]
+  
+  # generate sorted lists with the indicated cutoff values
+  res <- res[order(res$log2FoldChange, decreasing=TRUE ),]
+  de_genes_padj <- res[which(res$padj < padjcutoff),]
+
+  # write output to files
+  write.csv (de_genes_padj, file = paste0(comparisons[1], "_vs_", comparisons[2], "_padj_cutoff.csv"), row.names =F)
+  write.csv (combined_data, file = paste0(comparisons[1], "_vs_", comparisons[2], "_allgenes.csv"), row.names =F)
+  
+  writeLines( paste0("For the comparison: ", comparisons[1], "_vs_", comparisons[2], "\n",
+                     "Out of ", nrow(combined_data), " genes, ", nrow(de_genes_padj), " were below padj ", padjcutoff, "\n",
+                     "Gene lists ordered by log2fchange have been generated.") )
+}
+```
+
+```{r}
+generate_DE_results (dds, c("Activated", "Control"), padjcutoff = 0.001)
+```
+
+The function above should exported lists of differentially expressed genes between unactivated and activated dendritic cells. Below are some sample plots that can be used to visualize the data.
+
+## Visualizations
+
+### Heatmap of differentially expressed genes
+
+A way to visualize the results from the csv files we generated is to plot the expression values for each gene in a heatmap. The heatmap below takes the top 50 significant genes ordered by the `log2FoldChange` value. It should display genes that are highly upregulated in activated dendritic cells.
+
+```{r differential_gene_heatmap, fig.width=6, fig.height=9}
+res <- read.csv ("Activated_vs_Control_allgenes.csv", header = T, check.names = F)
+DE_gene_heatmap <- function(res, padj_cutoff = 0.001, ngenes = 20) {
+  # generate the color palette
+  ramp <- colorRampPalette(RColorBrewer::brewer.pal(11, "RdBu"))
+  mr <- ramp(256)[256:1]
+  # obtain the significant genes and order by log2FoldChange
+  significant_genes <- res %>% filter(padj < padj_cutoff) %>% arrange (desc(log2FoldChange)) %>% head (ngenes)
+  heatmap_values <- as.matrix(significant_genes[,-c(1:5)])
+  rownames(heatmap_values) <- significant_genes$Gene.name
+  # plot the heatmap using pheatmap
+  pheatmap::pheatmap(heatmap_values, color = mr, scale = "row", border_color = NA, cluster_cols = F, cluster_rows = F)
+}
+DE_gene_heatmap(res, padj_cutoff = 0.001, ngenes = 20)
+```
+
+Another way of looking at differences in gene expression between groups of samples is to construct a heatmap displaying the top most variable genes. The code below will find the top most variable genes using the `rowVars()` function, and plot the results using `pheatmap()`.
+
+```{r variable_genes_heatmap, fig.width=12, fig.height=10}
+variable_gene_heatmap <- function (dds, num_genes = 500) {
+  vsd.obj <- vst(dds, blind = TRUE)
+  # Ramp the color in order to get the scale.
+  ramp <- colorRampPalette( RColorBrewer::brewer.pal(11, "RdBu"))
+  mr <- ramp(256)[256:1]
+  # get the stabilized counts from the vsd object
+  stabilized_counts <- assay(vsd.obj)
+  # calculate the variances by row(gene) to find out which genes are the most variable across the samples.
+  row_variances <- rowVars(stabilized_counts)
+  # get the top most variable genes
+  top_variable_genes <- stabilized_counts[order(row_variances, decreasing=T)[1:num_genes],]
+  # subtract out the means from each row, leaving the variances for each gene
+  top_variable_genes <- top_variable_genes - rowMeans(top_variable_genes, na.rm=T)
+  # reconstruct colData without sizeFactors for heatmap labeling
+  coldata <- as.data.frame(vsd.obj@colData)
+  coldata$sizeFactor <- NULL
+  # draw heatmap using pheatmap
+  pheatmap::pheatmap(top_variable_genes, color = mr, annotation_col = coldata, fontsize_col = 12, fontsize_row = 10, border_color = NA, fontsize = 10, cluster_cols = F)
+}
+variable_gene_heatmap(dds, num_genes = 50)
+```
+
+
+### PCA plot 
+
+We can also use a principal components analysis (PCA) plot to observe how the samples cluster. Samples with similar gene expression patterns are expected to cluster more closely together on this plot.
+
+```{r pca_plot, fig.width = 11, fig.height=6}
+plot_PCA = function (dds) {
+  vsd.obj <- vst(dds, blind = TRUE)
+  pcaData <- plotPCA(vsd.obj,  intgroup = c("condition"), returnData = T)
+  percentVar <- round(100 * attr(pcaData, "percentVar"))
+  ggplot(pcaData, aes(PC1, PC2, color=condition)) +
+    geom_point(size=3) +
+    labs(x = paste0("PC1: ",percentVar[1],"% variance"),
+         y = paste0("PC2: ",percentVar[2],"% variance"),
+         title = "PCA Plot colored by condition") +
+    ggrepel::geom_text_repel(aes(label = name), color = "black")
+}
+plot_PCA(dds)
+```
+
+Above is a principal components analysis (PCA) plot of the 4 biological samples. As expected, we can observe that the activated dendritic cell samples cluster away from the unactivated cells in the PCA plot. This suggests that the groups have different gene expression profiles. The next plot will show us some of the genes that contribute to the clustering we see here.
+
+
+### Volcano plot
+
+A volcano plot is another way to visualize differentially expressed genes between the two groups. Here, the genes on the left are enriched in the control, and the genes on the right are enriched in the activated cells.
+
+```{r volcano_plot,fig.width=10, fig.height=4}
+plot_volcano <- function (res, padj_cutoff, nlabel = 10, label.by = "padj"){
+  # assign significance to results based on padj
+  res <- mutate(res, significance=ifelse(res$padj<padj_cutoff, paste0("padj < ", padj_cutoff), paste0("padj > ", padj_cutoff)))
+  res = res[!is.na(res$significance),]
+  significant_genes <- res %>% filter(significance == paste0("padj < ", padj_cutoff))
+  
+  # get labels for the highest or lowest genes according to either padj or log2FoldChange
+  if (label.by == "padj") {
+    top_genes <- significant_genes %>% filter (log2FoldChange > 0) %>% arrange(padj) %>% head(nlabel)
+    bottom_genes <- significant_genes %>% filter (log2FoldChange < 0) %>% arrange(padj) %>% head (nlabel)
+  } else if (label.by == "log2FoldChange") {
+    top_genes <- head(arrange(significant_genes, desc(log2FoldChange)),nlabel)
+    bottom_genes <- head(arrange(significant_genes, log2FoldChange),nlabel)
+  } else
+    stop ("Invalid label.by argument. Choose either padj or log2FoldChange.")
+  
+  ggplot(res, aes(log2FoldChange, -log(padj))) +
+    geom_point(aes(col=significance)) + 
+    scale_color_manual(values=c("red", "black")) + 
+    ggrepel::geom_text_repel(data=top_genes, aes(label=head(Gene.name,nlabel)), size = 3)+
+    ggrepel::geom_text_repel(data=bottom_genes, aes(label=head(Gene.name,nlabel)), color = "#619CFF", size = 3)+
+    labs ( x = "Log2FoldChange", y = "-(Log normalized p-value)")+
+    geom_vline(xintercept = 0, linetype = "dotted")+
+    theme_minimal()
+}
+
+plot_volcano(res, 0.01, nlabel = 25, label.by = "padj")
+```
+
+We can see that the majority of differentially expressed genes are upregulated in activated dendritic cells. This makes sense biologically, since a dendritic cell would want to rapidly begin expressing markers that help activate T cells (co-stimulatory molecules), such as CD86. CD86 is a well described marker that is upregulated by dendritic cells after activation. We can see that CD86 shows up in our analysis, which gives us more confidence that the experiment and data analysis was performed correctly.
+
+## Conclusion
+
+Thanks for reading! If you are interested in a more in-depth look at how to perform RNA-seq analysis, you can check out my bulk RNA-seq analysis [guide](https://github.com/erilu/bulk-rnaseq-analysis) where I provide step-by-step examples of how to download raw FASTQ sequencing files, align them to a reference genome, and use DESeq2 to find differentially expressed genes. Thanks for reading!
+
+
+
